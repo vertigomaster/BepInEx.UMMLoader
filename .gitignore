@@ -291,6 +291,9 @@ __pycache__/
 lib/UnityEngine.dll
 lib/UnityEngine.UI.dll
 lib/UnityEngine.CoreModule.dll
+lib/UnityEngine.*.dll
+# I would suggest grabbing a unity title from arond 2018 (or installing the Unity Editor) 
+# and pointing your IDE at its .dll files.
 
 #BepInEx libraries
 lib/BepInEx.dll
