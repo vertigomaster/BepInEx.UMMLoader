@@ -87,7 +87,13 @@ namespace UnityModManagerNet
 		[XmlRoot("Config")]
 		public class GameInfo
 		{
-			private static readonly string filepath = Path.Combine(Path.GetDirectoryName(typeof(GameInfo).Assembly.Location), "Config.xml");
+            /// <summary>
+            /// Grabs the path of the active, injected UMM installation
+            /// (down in GAMEDIR/GAMENAME_Data/Managed/UnityModManager or wherever)
+            /// </summary>
+			private static readonly string filepath = Path.Combine(
+                Path.GetDirectoryName(typeof(GameInfo).Assembly.Location), 
+                "Config.xml");
 			public string Additionally;
 			public string EntryPoint;
 			public string Folder;
