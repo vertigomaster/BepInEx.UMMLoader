@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
-using Harmony12;
+using HarmonyLib;
 using Mono.Cecil;
 using Debug = UnityEngine.Debug;
 
@@ -15,7 +15,9 @@ namespace UnityModManagerNet
 	{
 		public partial class ModEntry
 		{
-			private static readonly Regex RequirementPattern = new Regex(@"(.*)-(\d\.\d\.\d).*", RegexOptions.Compiled);
+			// private static readonly Regex RequirementPattern = new Regex(@"(.*)-(\d\.\d\.\d).*");
+			// private static readonly Regex RequirementPattern = new Regex(@"(.*)-(\d\.\d\.\d).*", RegexOptions.Compiled);
+			private static readonly Regex RequirementPattern = null; //weird cctor error, testing.
 
 			/// <summary>
 			///     Required game version [0.15.0]
@@ -180,6 +182,9 @@ namespace UnityModManagerNet
 
 			public ModEntry(ModInfo info, string path)
 			{
+                // Logger.Log($"Compiled = {(int)RegexOptions.Compiled}");
+                // Debug.Log((int)RegexOptions.Compiled);
+                
 				Info = info;
 				Path = path;
 				Logger = new ModLogger(Info.Id);
@@ -187,21 +192,26 @@ namespace UnityModManagerNet
 				ManagerVersion = !string.IsNullOrEmpty(info.ManagerVersion) ? ParseVersion(info.ManagerVersion) : new Version();
 				GameVersion = !string.IsNullOrEmpty(info.GameVersion) ? ParseVersion(info.GameVersion) : new Version();
 
-				if (info.Requirements == null || info.Requirements.Length <= 0)
-					return;
+                // Logger.Warning($"Creating ModEntry, about to check requirements ({info.Requirements})");
+                if (info.Requirements == null) return;
+                if (info.Requirements.Length <= 0) return;
 
-				foreach (string id in info.Requirements)
-				{
-					var match = RequirementPattern.Match(id);
-					if (match.Success)
-					{
-						Requirements.Add(match.Groups[1].Value, ParseVersion(match.Groups[2].Value));
-						continue;
-					}
+                if (RequirementPattern != null)
+                {
+				    foreach (string id in info.Requirements)
+				    {
+                        // Logger.Warning($"Checking requirement {id}");
+					    var match = RequirementPattern.Match(id);
+					    if (match != null && match.Success)
+					    {
+						    Requirements.Add(match.Groups[1].Value, ParseVersion(match.Groups[2].Value));
+						    continue;
+					    }
 
-					if (!Requirements.ContainsKey(id))
-						Requirements.Add(id, null);
-				}
+					    if (!Requirements.ContainsKey(id))
+						    Requirements.Add(id, null);
+				    }
+                }
 			}
 
 			public bool Load()
@@ -404,8 +414,7 @@ namespace UnityModManagerNet
 					if (!Active && (OnUnload == null || OnUnload.Invoke(this)))
 					{
 						mCache.Clear();
-						typeof(Traverse).GetField("Cache", BindingFlags.Static | BindingFlags.NonPublic)?.SetValue(null, new AccessCache());
-						typeof(Harmony.Traverse).GetField("Cache", BindingFlags.Static | BindingFlags.NonPublic)?.SetValue(null, new Harmony.AccessCache());
+						ClearHarmonyCache();
 
 						var oldAssembly = Assembly;
 						Assembly = null;
@@ -545,6 +554,58 @@ namespace UnityModManagerNet
 				mCache[key] = methodInfo;
 
 				return methodInfo;
+			}
+
+			/// <summary>
+			/// Clears Harmony's internal reflection caches to prevent stale data from old assemblies.
+			/// Note: This affects all mods as Harmony caches are global.
+			/// </summary>
+			private static void ClearHarmonyCache()
+			{
+				try
+				{
+					var traverseType = typeof(HarmonyLib.Traverse);
+					var cacheField = traverseType.GetField("Cache", BindingFlags.Static | BindingFlags.NonPublic);
+                    //grab cache and more directly clear it out 
+					if (cacheField != null)
+					{
+						var cacheInstance = cacheField.GetValue(null);
+                        //if type instance already exists, try to clear it
+                        //if it's a dictionary-ish object (which it should be)
+						if (cacheInstance != null) 
+						{
+                            //empty out its dictionary
+							foreach (var field in cacheInstance.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic))
+							{
+								if (typeof(System.Collections.IDictionary).IsAssignableFrom(field.FieldType))
+								{
+									var dict = field.GetValue(cacheInstance) as System.Collections.IDictionary;
+									dict?.Clear();
+								}
+							}
+						}
+						else
+						{
+                            //create new empty instance of whatever type it was so that it's not null
+							cacheField.SetValue(null, Activator.CreateInstance(cacheField.FieldType));
+						}
+					}
+
+                    //clear access tools cache via reflection since AccessTools is now an internal type
+                    //though I feel like that's sort of a sign that we shouldn't be doing that (or shouldn't need to do that)
+                    //but I'm more focused on porting the existing functionality rn.
+					var accessToolsType = typeof(HarmonyLib.AccessTools);
+					var atCacheField = accessToolsType.GetField("cache", BindingFlags.Static | BindingFlags.NonPublic);
+					if (atCacheField != null)
+					{
+						var dict = atCacheField.GetValue(null) as System.Collections.IDictionary;
+						dict?.Clear();
+					}
+				}
+				catch (Exception e)
+				{
+					Debug.LogWarning($"[UMM] Failed to clear Harmony cache: {e.Message}");
+				}
 			}
 		}
 	}

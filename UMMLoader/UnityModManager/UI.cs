@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using Harmony;
+using HarmonyLib;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
@@ -162,8 +162,10 @@ namespace UnityModManagerNet
 				mUIScale = Mathf.Clamp(Params.UIScale, 0.5f, 2f);
 				mExpectedUIScale = mUIScale;
 				Textures.Init();
-				var harmony = HarmonyInstance.Create("UnityModManager.UI");
-				var original = typeof(Screen).GetMethod("set_lockCursor");
+				var harmony = new Harmony("UnityModManager.UI");
+				// var original = typeof(Screen).GetMethod("set_lockCursor");
+                //handles reflection edge cases better apparently
+                var original = AccessTools.PropertySetter(typeof(Screen), "lockCursor");
 				var prefix = typeof(Screen_lockCursor_Patch).GetMethod("Prefix", BindingFlags.Static | BindingFlags.NonPublic);
 				harmony.Patch(original, new HarmonyMethod(prefix));
 			}
@@ -275,6 +277,8 @@ namespace UnityModManagerNet
 				h2 = new GUIStyle { name = "umm h2", normal = { textColor = new Color(0.6f, 0.91f, 1f) }, fontStyle = FontStyle.Bold };
 
 				bold = new GUIStyle(GUI.skin.label) { name = "umm bold", normal = { textColor = Color.white }, fontStyle = FontStyle.Bold };
+                
+                button = new GUIStyle(GUI.skin.button) { name = "umm button", normal = { textColor = Color.white }, fontStyle = FontStyle.Bold };
 
 				settings = new GUIStyle { alignment = TextAnchor.MiddleCenter, stretchHeight = true };
 
@@ -308,8 +312,15 @@ namespace UnityModManagerNet
 				h1.margin = RectOffset(Scale(0), Scale(5));
 				h2.fontSize = Scale(13);
 				h2.margin = RectOffset(Scale(0), Scale(3));
-				button.fontSize = Scale(13);
-				button.padding = RectOffset(Scale(30), Scale(5));
+                if (button != null)
+                {
+                    button.fontSize = Scale(13);
+				    button.padding = RectOffset(Scale(30), Scale(5));
+                }
+                else
+                {
+                    Debug.LogError("UnityModManagerNet.UI: button is null!");
+                }
 
 				var iconHeight = 28;
 				settings.fixedWidth = Scale(24);
@@ -445,7 +456,13 @@ namespace UnityModManagerNet
 				float expandWidth = mColumns.Where(x => x.expand && !x.skip).Sum(x => x.width);
 
 				var mods = modEntries;
-				var colWidth = mColumns.Select(x => x.expand ? GUILayout.Width(x.width / expandWidth * (mWindowSize.x - 60 + expandWidth - amountWidth)) : GUILayout.Width(x.width)).ToArray();
+				var colWidth = mColumns.Select(x => {
+                    var expandedWidthOption = GUILayout.Width(
+                        x.width / expandWidth * 
+                        (mWindowSize.x - 60 + expandWidth - amountWidth));
+                    
+                    return x.expand ? expandedWidthOption : GUILayout.Width(x.width);
+                }).ToArray();
 
 				GUILayout.BeginVertical("box");
 

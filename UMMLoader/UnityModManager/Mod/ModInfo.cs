@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Text;
 
 namespace UnityModManagerNet
 {
@@ -38,6 +39,24 @@ namespace UnityModManagerNet
 			}
 
 			public override int GetHashCode() { return Id.GetHashCode(); }
+
+            public override string ToString()
+            {
+                StringBuilder sb = new StringBuilder();
+                sb.Append("ModInfo: ");
+                sb.Append($"\n\tAssembly Name: {AssemblyName}");
+                sb.Append($"\n\tAuthor: {Author}");
+                sb.Append($"\n\tDisplayName: {DisplayName}");
+                sb.Append($"\n\tEntryMethod: {EntryMethod}");
+                sb.Append($"\n\tGameVersion: {GameVersion}");
+                sb.Append($"\n\tHomePage: {HomePage}");
+                sb.Append($"\n\tId: {Id}");
+                sb.Append($"\n\tManagerVersion: {ManagerVersion}");
+                sb.Append($"\n\tRepository: {Repository}");
+                sb.Append($"\n\tRequirements:{string.Join(", ", Requirements ?? new string[0])}");
+                sb.Append($"\n\tVersion: {Version}");
+                return sb.ToString();
+            }
 		}
 	}
 }

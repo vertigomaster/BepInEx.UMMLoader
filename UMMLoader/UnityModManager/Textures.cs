@@ -43,26 +43,83 @@ namespace UnityModManagerNet
 
 				if (unityVersion.Major >= 2017)
 				{
+                    //TODO: verify that ImageConversionModule is available
 					var assembly = Assembly.Load("UnityEngine.ImageConversionModule");
 					var LoadImage = assembly.GetType("UnityEngine.ImageConversion").GetMethod("LoadImage", new[] { typeof(Texture2D), typeof(byte[]) });
-					if (LoadImage != null)
-						foreach (var f in textureFields)
-							LoadImage.Invoke(null, new object[] { (Texture2D)f.GetValue(null), Convert.FromBase64String((string)stringFields.FirstOrDefault(x => x.Name == f.Name + "Base64")?.GetValue(null) ?? "") });
+                    if (LoadImage != null)
+                    {
+                        foreach (var f in textureFields)
+                        {
+                            _Log("Loading texture " + f.Name);
+                            LoadImage.Invoke(null, new object[]
+                            {
+                                (Texture2D)f.GetValue(null),
+                                Convert.FromBase64String((string)stringFields
+                                    .FirstOrDefault(x => x.Name == f.Name + "Base64")
+                                    ?.GetValue(null) ?? "")
+                            });
+                        }
+                    }
+                    else
+                    {
+                        _LogError("Detected Unity 2017+ but couldn't find LoadImage method in UnityEngine.ImageConversionModule. " +
+                            "Can't load the textures for UMMLoader.");
+                        return;
+                    }
 				}
 				else
 				{
 					var LoadImage = typeof(Texture2D).GetMethod("LoadImage", new[] { typeof(byte[]) });
-					if (LoadImage != null)
-						foreach (var f in textureFields)
-							LoadImage.Invoke((Texture2D)f.GetValue(null), new object[] { Convert.FromBase64String((string)stringFields.FirstOrDefault(x => x.Name == f.Name + "Base64")?.GetValue(null) ?? "") });
-				}
+                    if (LoadImage != null)
+                    {
+                        foreach (var f in textureFields)
+                        {
+                            _Log("Loading texture " + f.Name);
+                            LoadImage.Invoke(
+                                (Texture2D)f.GetValue(null),
+                                new object[] {
+                                    Convert.FromBase64String((string)stringFields
+                                        .FirstOrDefault(x => x.Name == f.Name + "Base64")
+                                        ?.GetValue(null) ?? "")
+                                });
+                        }
+                    }
+                    else
+                    {
+                        _LogError("Detected Pre Unity 2017 but couldn't find Texture2D.LoadImage method. " +
+                            "Can't load the textures for UMMLoader.");
+                        return;
+                    }
+                }
 
 				var resize = 128;
-				SettingsNormal.ResizeToIfLess(resize);
-				SettingsActive.ResizeToIfLess(resize);
-				WWW.ResizeToIfLess(resize);
-				Updates.ResizeToIfLess(resize);
+                if (SettingsNormal) SettingsNormal.ResizeToIfLess(resize);
+                else _LogError("Failed to load SettingsNormal texture.");
+                
+				if(SettingsActive) SettingsActive.ResizeToIfLess(resize);
+                else _LogError("Failed to load SettingsActive texture.");
+                
+				if(WWW) WWW.ResizeToIfLess(resize);
+                else _LogError("Failed to load WWW texture.");
+                
+				if(Updates) Updates.ResizeToIfLess(resize);
+                else _LogError("Failed to load Updates texture.");
 			}
+            
+            private static void _LogError(string message)
+            {
+                Debug.LogError("UMMLoader.Textures: " + message);
+            }
+            
+            private static void _LogWarning(string message)
+            {
+                Debug.LogWarning("UMMLoader.Textures: " + message);
+            }
+            
+            private static void _Log(string message)
+            {
+                Debug.Log("UMMLoader.Textures: " + message);
+            }
 		}
 	}
 }

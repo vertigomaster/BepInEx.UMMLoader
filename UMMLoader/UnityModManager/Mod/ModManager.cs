@@ -173,7 +173,7 @@ namespace UnityModManagerNet
 
 			if (Directory.Exists(modsPath))
 			{
-				Logger.Log("Parsing mods.");
+				Logger.Log($"Parsing mods from mods folder ({modsPath}).");
 
 				var mods = new Dictionary<string, ModEntry>();
 
@@ -208,6 +208,7 @@ namespace UnityModManagerNet
 						if (string.IsNullOrEmpty(modInfo.AssemblyName))
 							modInfo.AssemblyName = modInfo.Id + ".dll";
 
+                        Logger.Log("modInfo shape: " + modInfo);
 						var modEntry = new ModEntry(modInfo, dir + Path.DirectorySeparatorChar);
 						mods.Add(modInfo.Id, modEntry);
 					}
