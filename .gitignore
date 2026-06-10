@@ -297,3 +297,7 @@ lib/UnityEngine.*.dll
 
 #BepInEx libraries
 lib/BepInEx.dll
+
+# Rider
+.rider/
+.idea
