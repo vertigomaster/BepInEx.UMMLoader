@@ -7,7 +7,7 @@ using UnityModManagerNet;
 
 namespace UMMLoader
 {
-	[BepInPlugin("org.bepinex.ummloader", "UnityModManagerLoader", "0.15.0.0")]
+	[BepInPlugin("org.bepinex.ummloader", "UnityModManagerLoader", "0.16.1.0")]
 	public class UMMLoader : BaseUnityPlugin
 	{
 		internal new static ManualLogSource Logger;
