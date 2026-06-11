@@ -88,11 +88,13 @@ namespace UnityModManagerNet
 		public class GameInfo
 		{
             /// <summary>
-            /// Grabs the path of the active, injected UMM installation
-            /// (down in GAMEDIR/GAMENAME_Data/Managed/UnityModManager or wherever)
+            /// Grabs the path of this assembly;
+            /// Config.xml should be placed in the same directory as UMMLoader.dll
             /// </summary>
 			private static readonly string filepath = Path.Combine(
-                Path.GetDirectoryName(typeof(GameInfo).Assembly.Location), 
+                Path.GetDirectoryName(typeof(GameInfo).Assembly.Location) ?? 
+                    throw new InvalidOperationException(
+                        "Could not resolve path to UMMLoader.dll - GameInfo type likely null."), 
                 "Config.xml");
 			public string Additionally;
 			public string EntryPoint;
