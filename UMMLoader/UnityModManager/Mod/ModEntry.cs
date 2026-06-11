@@ -264,49 +264,30 @@ namespace UnityModManagerNet
 							assemblyCachePath = assemblyPath + $".{hash}.cache";
 							cacheExists = File.Exists(assemblyCachePath);
 
+                            //try nuke the cache if there isn't supposed to be one? variables confusing.
 							if (!cacheExists)
+							{
 								foreach (string filepath in Directory.GetFiles(Path, "*.cache"))
-									try
-									{
-										File.Delete(filepath);
-									}
-									catch (Exception) { }
-						}
-
-						if (ManagerVersion >= VER_0_13)
-						{
-							if (mFirstLoading)
-							{
-								if (!cacheExists)
-									File.Copy(assemblyPath, assemblyCachePath, true);
-								Assembly = Assembly.LoadFile(assemblyCachePath);
-
-								foreach (var type in Assembly.GetTypes())
-									if (type.GetCustomAttributes(typeof(EnableReloadingAttribute), true).Any())
-									{
-										CanReload = true;
-										break;
-									}
+                                {
+                                    try
+                                    {
+                                        File.Delete(filepath);
+                                    }
+                                    catch (FileNotFoundException)
+                                    {
+                                        Logger.Log("Failed to delete cache file, didn't exist");
+                                    }
+                                    catch (Exception e)
+                                    {
+                                        Logger.Log("Failed to delete cache file for unexpected reason, " +
+                                            "but this is not fatal, it will just be skipped. " +
+                                            "Exception: " + e);
+                                    }
+                                }
 							}
-							else
-								Assembly = Assembly.Load(File.ReadAllBytes(assemblyPath));
 						}
-						else
-						{
-							using (var asm = AssemblyDefinition.ReadAssembly(assemblyPath))
-							{
-								var asmName = AssemblyNameReference.Parse(Assembly.GetExecutingAssembly().FullName);
-								asm.MainModule.AssemblyReferences.Add(asmName);
 
-								foreach (var typeReference in asm.MainModule.GetTypeReferences())
-									if (typeReference.FullName == "UnityModManagerNet.UnityModManager")
-										typeReference.Scope = asmName;
-
-								asm.Write(assemblyCachePath);
-							}
-
-							Assembly.LoadFile(assemblyCachePath);
-						}
+						LoadAssembly(cacheExists, assemblyPath, assemblyCachePath);
 
 						mFirstLoading = false;
 					}
@@ -358,6 +339,57 @@ namespace UnityModManagerNet
 
 				return false;
 			}
+
+            private void LoadAssembly(bool cacheExists, string assemblyPath, string assemblyCachePath)
+            {
+                if (ManagerVersion >= VER_0_13)
+                {
+                    if (mFirstLoading)
+                    {
+                        if (!cacheExists)
+                            File.Copy(assemblyPath, assemblyCachePath, true);
+                        Assembly = Assembly.LoadFile(assemblyCachePath);
+
+                        foreach (var type in Assembly.GetTypes())
+                            if (type.GetCustomAttributes(typeof(EnableReloadingAttribute), true).Any())
+                            {
+                                CanReload = true;
+                                break;
+                            }
+                    }
+                    else
+                        Assembly = Assembly.Load(File.ReadAllBytes(assemblyPath));
+                }
+                else
+                {
+                    Logger.Log($"Manager Version {ManagerVersion} either not specified or < 0.13");
+                    using (AssemblyDefinition modAssemblyDef = AssemblyDefinition.ReadAssembly(assemblyPath))
+                    {
+                        Logger.Log($"Mod assembly def name: {modAssemblyDef.FullName}");
+                        AssemblyNameReference execAssemblyNameRef = AssemblyNameReference.Parse(
+                            Assembly.GetExecutingAssembly().FullName);
+
+                        Logger.Log($"Exec assembly: {execAssemblyNameRef.Name} ({execAssemblyNameRef.FullName}, {execAssemblyNameRef.Version})");
+                                
+                        //make the mod assembly reference the executing assembly
+                        modAssemblyDef.MainModule.AssemblyReferences.Add(execAssemblyNameRef);
+
+                        foreach (var typeReference in modAssemblyDef.MainModule.GetTypeReferences())
+                            if (typeReference.FullName == "UnityModManagerNet.UnityModManager")
+                            {
+                                Logger.Log($"Found UMM type reference {typeReference.FullName} in mod assembly {modAssemblyDef.FullName}. Updating its scope to the exec assembly");
+                                        
+                                typeReference.Scope = execAssemblyNameRef;
+                            }
+
+                        //write the updated assembly to the cache, so that its product can be read.
+                        Logger.Log($"Writing updated assembly to cache: {assemblyCachePath}");
+                        modAssemblyDef.Write(assemblyCachePath);
+                    }
+
+                    Assembly = Assembly.LoadFile(assemblyCachePath);
+                }
+            }
 
             private void ActivateRequiredMods()
             {
@@ -570,7 +602,7 @@ namespace UnityModManagerNet
                 {
                     if (showLog)
                         UnityModManager.Logger.Error(
-                            $"Can't find method '{namespaceClassnameMethodname}'. " +
+                            $"Couldn't find method '{namespaceClassnameMethodname}'. " +
                             $"Mod '{Info.Id}' is not loaded.");
                     
                     return false;
