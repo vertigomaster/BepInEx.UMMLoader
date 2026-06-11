@@ -128,7 +128,12 @@ namespace UnityModManagerNet
 
 			public Assembly Assembly { get; private set; }
 
-			public bool Started { get; private set; }
+            /// <summary>
+            /// An attempt was made to set the mod to be <see cref="Active"/>.
+            /// It may or may not have succeeded.
+            /// If true, further attempts to activate the mod will be blocked (for idempotency).
+            /// </summary>
+			public bool LoadAttempted { get; private set; }
 
 			public bool ErrorOnLoading { get; private set; }
 
@@ -142,12 +147,20 @@ namespace UnityModManagerNet
 			/// </summary>
 			public bool Loaded => Assembly != null;
 
+            /// <summary>
+            /// A bit of a mess, but this is both the active marker, as well as the logic for running activation and loading the mod. 
+            /// </summary>
+            /// <remarks>
+            /// Currently, this calls Load() in addition to just marking the mod as active.
+            /// Load in turn sets Active = true if it succeeds, which triggers this again, requiring additional flags as bandaids...
+            /// </remarks>
 			public bool Active
 			{
 				get => mActive;
 				set
 				{
-					if (!Started || ErrorOnLoading)
+                    //avoid reactivating when a load attempt has already been made (you'll want to reload instead)
+					if (LoadAttempted || ErrorOnLoading) 
 						return;
 
 					try
@@ -227,28 +240,9 @@ namespace UnityModManagerNet
 					}
 
 				if (Requirements.Count > 0)
-					foreach (var item in Requirements)
-					{
-						string id = item.Key;
-						var mod = FindMod(id);
-						if (mod == null)
-						{
-							ErrorOnLoading = true;
-							Logger.Error($"Required mod '{id}' missing.");
-						}
-						else if (!mod.Active)
-						{
-							mod.Enabled = true;
-							mod.Active = true;
-							if (!mod.Active)
-								Logger.Log($"Required mod '{id}' inactive.");
-						}
-						else if (item.Value != null && item.Value > mod.Version)
-						{
-							ErrorOnLoading = true;
-							Logger.Error($"Required mod '{id}' must be version '{item.Value}' or higher.");
-						}
-					}
+                {
+                    ActivateRequiredMods();
+                }
 
 				if (ErrorOnLoading)
 					return false;
@@ -257,6 +251,7 @@ namespace UnityModManagerNet
 
 				if (File.Exists(assemblyPath))
 				{
+                    //loading the file
 					try
 					{
 						string assemblyCachePath = assemblyPath;
@@ -327,16 +322,16 @@ namespace UnityModManagerNet
 					{
 						object[] param = { this };
 						Type[] types = { typeof(ModEntry) };
-						if (FindMethod(Info.EntryMethod, types, false) == null)
-						{
-							param = null;
-							types = null;
-						}
 
-						if (!Invoke(Info.EntryMethod, out var result, param, types) || result != null && (bool)result == false)
+                        bool ranEntryMethod = TryInvoke(Info.EntryMethod, out var result, param, types);
+                        bool entryMethodReturnedFalse = result is bool b && !b;
+						if (!ranEntryMethod || entryMethodReturnedFalse)
 						{
 							ErrorOnLoading = true;
-							Logger.Log("Not loaded.");
+                            string reason = !ranEntryMethod ? 
+                                "Entry method could not be run (didn't exist?)" :
+                                "Entry method returned false";
+							Logger.Log($"Not loaded. Reason: {reason}");
 						}
 					}
 					catch (Exception e)
@@ -346,8 +341,9 @@ namespace UnityModManagerNet
 						return false;
 					}
 
-					Started = true;
+					LoadAttempted = true;
 
+                    //cyclical at the moment; setting Active to true calls Load
 					if (!ErrorOnLoading)
 					{
 						Active = true;
@@ -363,11 +359,46 @@ namespace UnityModManagerNet
 				return false;
 			}
 
+            private void ActivateRequiredMods()
+            {
+                foreach (var item in Requirements)
+                {
+                    ActivateSingleRequirementMod(item);
+                }
+            }
+
+            private void ActivateSingleRequirementMod(KeyValuePair<string, Version> item)
+            {
+                string id = item.Key;
+                var mod = FindMod(id);
+                if (mod == null)
+                {
+                    ErrorOnLoading = true;
+                    Logger.Error($"Required mod '{id}' missing.");
+                }
+                else if (!mod.Active)
+                {
+                    mod.Enabled = true;
+                    mod.Active = true;
+                    if (!mod.Active)
+                        Logger.Log($"Required mod '{id}' inactive.");
+                }
+                else if (item.Value != null && item.Value > mod.Version)
+                {
+                    ErrorOnLoading = true;
+                    Logger.Error($"Required mod '{id}' must be version '{item.Value}' or higher.");
+                }
+            }
+
             internal void Reload()
 			{
-				if (!Started || !CanReload)
+                //if not reloadable, just return
+                //reloads should be attempted regardless of whether a load has been attempted
+                //(they still need to be activated newly by this process)
+				if (!CanReload)
 					return;
 
+                //check version (only reload if changed (updated at runtime))
 				try
 				{
 					string assemblyPath = System.IO.Path.Combine(Path, Info.AssemblyName);
@@ -396,6 +427,7 @@ namespace UnityModManagerNet
 
 				try
 				{
+                    //if successfully deactivated, and unload callback didn't report a failure: actually reload
 					if (!Active && (OnUnload == null || OnUnload.Invoke(this)))
 					{
 						mCache.Clear();
@@ -403,7 +435,7 @@ namespace UnityModManagerNet
 
 						var oldAssembly = Assembly;
 						Assembly = null;
-						Started = false;
+						LoadAttempted = false;
 						ErrorOnLoading = false;
 
 						OnToggle = null;
@@ -417,11 +449,15 @@ namespace UnityModManagerNet
 						OnLateUpdate = null;
 						CustomRequirements = null;
 
-						if (!Load())
+                        if (!Load())
+                        {
+                            Logger.Error($"Failed to reload mod {Info.Id}: load failed.");
 							return;
+                        }
 
+                        //reload internal mod state dynamically (in theory)
 						foreach (var type in oldAssembly.GetTypes())
-                            ReloadType(type);
+                            ReloadTypeFromModAssembly(type);
 
 						return;
 					}
@@ -437,7 +473,26 @@ namespace UnityModManagerNet
 				Logger.Log("Reloading canceled.");
 			}
 
-            public bool Invoke(string namespaceClassnameMethodname, out object result, object[] param = null, Type[] types = null)
+            /// <summary>
+            /// Attempts to invoke the method with the given name, if it exists.
+            /// </summary>
+            /// <param name="namespaceClassnameMethodname"></param>
+            /// <param name="result">Will contain the result of the method invocation, if it was successful.
+            /// Will be null if the invocation does not return anything, if the invocation has a return type of void,
+            /// or if invocation was unsuccessful.
+            /// <br/>
+            /// Always check if TryInvoke succeeded before evaluating the result.</param>
+            /// <param name="param"></param>
+            /// <param name="types"></param>
+            /// <returns>
+            /// True if the method was invoked successfully, regardless of the result of that invocation.
+            /// <br/> False if the method was not found or if an exception was thrown during invocation.
+            /// </returns>
+            public bool TryInvoke(
+                string namespaceClassnameMethodname, 
+                out object result, 
+                object[] param = null, 
+                Type[] types = null)
 			{
 				result = null;
 				try
@@ -628,7 +683,12 @@ namespace UnityModManagerNet
 				}
 			}
 
-            private void ReloadType(Type type)
+            /// <summary>
+            /// Reloads the existing type, if it's from the mod's assembly,
+            /// in order to dynamically restore its internal state.
+            /// </summary>
+            /// <param name="type"></param>
+            private void ReloadTypeFromModAssembly(Type type)
             {
                 var t = Assembly.GetType(type.FullName);
                 if (t == null)
