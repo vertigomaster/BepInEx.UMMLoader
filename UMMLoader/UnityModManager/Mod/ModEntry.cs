@@ -183,9 +183,6 @@ namespace UnityModManagerNet
 
 			public ModEntry(ModInfo info, string path)
 			{
-                // Logger.Log($"Compiled = {(int)RegexOptions.Compiled}");
-                // Debug.Log((int)RegexOptions.Compiled);
-                
 				Info = info;
 				Path = path;
 				Logger = new ModLogger(Info.Id);
@@ -193,29 +190,16 @@ namespace UnityModManagerNet
 				ManagerVersion = !string.IsNullOrEmpty(info.ManagerVersion) ? ParseVersion(info.ManagerVersion) : new Version();
 				GameVersion = !string.IsNullOrEmpty(info.GameVersion) ? ParseVersion(info.GameVersion) : new Version();
 
-                // Logger.Warning($"Creating ModEntry, about to check requirements ({info.Requirements})");
                 if (info.Requirements == null) return;
                 if (info.Requirements.Length <= 0) return;
 
                 if (RequirementPattern != null)
                 {
-				    foreach (string id in info.Requirements)
-				    {
-                        // Logger.Warning($"Checking requirement {id}");
-					    var match = RequirementPattern.Match(id);
-					    if (match != null && match.Success)
-					    {
-						    Requirements.Add(match.Groups[1].Value, ParseVersion(match.Groups[2].Value));
-						    continue;
-					    }
-
-					    if (!Requirements.ContainsKey(id))
-						    Requirements.Add(id, null);
-				    }
+                    BuildRequirementsList(info.Requirements);
                 }
 			}
 
-			public bool Load()
+            public bool Load()
 			{
 				if (Loaded)
 					return !ErrorOnLoading;
@@ -379,7 +363,7 @@ namespace UnityModManagerNet
 				return false;
 			}
 
-			internal void Reload()
+            internal void Reload()
 			{
 				if (!Started || !CanReload)
 					return;
@@ -437,32 +421,7 @@ namespace UnityModManagerNet
 							return;
 
 						foreach (var type in oldAssembly.GetTypes())
-						{
-							var t = Assembly.GetType(type.FullName);
-							if (t == null)
-								continue;
-							foreach (var field in type.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic).Where(f => f.GetCustomAttributes(typeof(SaveOnReloadAttribute), true).Any()))
-							{
-								var f = t.GetField(field.Name);
-								if (f == null)
-									continue;
-								Logger.Log($"Copying field '{field.DeclaringType.Name}.{field.Name}'");
-								try
-								{
-									if (field.FieldType != f.FieldType)
-									{
-										if (field.FieldType.IsEnum && f.FieldType.IsEnum)
-											f.SetValue(null, Convert.ToInt32(field.GetValue(null)));
-									}
-									else
-										f.SetValue(null, field.GetValue(null));
-								}
-								catch (Exception ex)
-								{
-									Logger.Error(ex.ToString());
-								}
-							}
-						}
+                            ReloadType(type);
 
 						return;
 					}
@@ -478,7 +437,7 @@ namespace UnityModManagerNet
 				Logger.Log("Reloading canceled.");
 			}
 
-			public bool Invoke(string namespaceClassnameMethodname, out object result, object[] param = null, Type[] types = null)
+            public bool Invoke(string namespaceClassnameMethodname, out object result, object[] param = null, Type[] types = null)
 			{
 				result = null;
 				try
@@ -500,64 +459,124 @@ namespace UnityModManagerNet
 				return false;
 			}
 
-			private MethodInfo FindMethod(string namespaceClassnameMethodname, Type[] types, bool showLog = true)
+            /// <summary>
+            /// Attempts to retrieve the given method. Returns null if not found.
+            /// Utilizes a cache to avoid repeated lookups.
+            /// </summary>
+            /// <param name="namespaceClassnameMethodname"></param>
+            /// <param name="types"></param>
+            /// <param name="showLog"></param>
+            /// <returns>
+            /// Null if not found, other the MethodInfo of the method matching the signature
+            /// </returns>
+            /// <remarks>
+            /// To skip the cache lookup and extract the MethodInfo directly,
+            /// use <see cref="TryExtractMethodInfo"/> instead.
+            /// </remarks>
+            private MethodInfo FindMethod(
+                string namespaceClassnameMethodname, 
+                Type[] types, 
+                bool showLog = true)
 			{
 				long key = namespaceClassnameMethodname.GetHashCode();
 				if (types != null)
 					key = types.Aggregate(key, (current, val) => current + val.GetHashCode());
 
-				if (mCache.TryGetValue(key, out var methodInfo))
-					return methodInfo;
+                MethodInfo methodInfo;
+                
+                //cache check
+				if (mCache.TryGetValue(key, out methodInfo)) return methodInfo;
 
-				if (Assembly != null)
-				{
-					string classString = null;
-					string methodString = null;
-					int pos = namespaceClassnameMethodname.LastIndexOf('.');
-					if (pos != -1)
-					{
-						classString = namespaceClassnameMethodname.Substring(0, pos);
-						methodString = namespaceClassnameMethodname.Substring(pos + 1);
-					}
-					else
-					{
-						if (showLog)
-							Logger.Error($"Function name error '{namespaceClassnameMethodname}'.");
+                //not cached; extract and cache
+                if (!TryExtractMethodInfo(namespaceClassnameMethodname, types, showLog, out methodInfo)) 
+                    return null;
+                
+                mCache[key] = methodInfo;
+                return methodInfo;
+            }
 
-						goto Exit;
-					}
+            /// <summary>
+            /// More direct method info extractor; does not check the cache, always extracts.
+            /// </summary>
+            /// <param name="namespaceClassnameMethodname"></param>
+            /// <param name="types"></param>
+            /// <param name="showLog"></param>
+            /// <param name="methodInfo"></param>
+            /// <returns></returns>
+            private bool TryExtractMethodInfo(
+                string namespaceClassnameMethodname, 
+                Type[] types, 
+                bool showLog, 
+                out MethodInfo methodInfo)
+            {
+                methodInfo = null;
 
-					var type = Assembly.GetType(classString);
-					if (type != null)
-					{
-						if (types == null)
-							types = new Type[0];
+                if (Assembly == null)
+                {
+                    if (showLog)
+                        UnityModManager.Logger.Error(
+                            $"Can't find method '{namespaceClassnameMethodname}'. " +
+                            $"Mod '{Info.Id}' is not loaded.");
+                    
+                    return false;
+                }
 
-						methodInfo = type.GetMethod(methodString, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic, null, types, new ParameterModifier[0]);
-						if (methodInfo == null)
-							if (showLog)
-								Logger.Log(types.Length > 0 ? $"Method '{namespaceClassnameMethodname}[{string.Join(", ", types.Select(x => x.Name).ToArray())}]' not found." : $"Method '{namespaceClassnameMethodname}' not found.");
-					}
-					else
-					{
-						if (showLog)
-							Logger.Error($"Class '{classString}' not found.");
-					}
-				}
-				else
-				{
-					if (showLog)
-						UnityModManager.Logger.Error($"Can't find method '{namespaceClassnameMethodname}'. Mod '{Info.Id}' is not loaded.");
-				}
+                int pos = namespaceClassnameMethodname.LastIndexOf('.');
+                if (pos < 0)
+                {
+                    if (showLog) Logger.Error($"Function name error '{namespaceClassnameMethodname}'.");
+                    return false;
+                }
 
-				Exit:
+                var classString = namespaceClassnameMethodname.Substring(0, pos);
+                var methodString = namespaceClassnameMethodname.Substring(pos + 1);
+                if (types == null) types = Type.EmptyTypes;
+                var type = Assembly.GetType(classString);
 
-				mCache[key] = methodInfo;
+                if (type == null)
+                {
+                    if (showLog) Logger.Error($"Class '{classString}' not found.");
+                    return false;
+                }
+                
+                methodInfo = type.GetMethod(
+                    name: methodString,
+                    bindingAttr: BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic, 
+                    binder: null, 
+                    types: types,
+                    modifiers: new ParameterModifier[0]);
 
-				return methodInfo;
-			}
+                if (methodInfo == null && showLog)
+                {
+                    Logger.Log(types.Length > 0
+                        ? $"Method '{namespaceClassnameMethodname}" +
+                            $"[{string.Join(", ", types.Select(x => x.Name).ToArray())}]' not found."
+                        : $"Method '{namespaceClassnameMethodname}' not found.");
+                    
+                    return false;
+                }
 
-			/// <summary>
+                return true;
+            }
+
+
+            private void BuildRequirementsList(IEnumerable<string> requirementsList)
+            {
+                foreach (string id in requirementsList)
+                {
+                    var match = RequirementPattern.Match(id);
+                    if (match != null && match.Success)
+                    {
+                        Requirements.Add(match.Groups[1].Value, ParseVersion(match.Groups[2].Value));
+                        continue;
+                    }
+
+                    if (!Requirements.ContainsKey(id))
+                        Requirements.Add(id, null);
+                }
+            }
+
+            /// <summary>
 			/// Clears Harmony's internal reflection caches to prevent stale data from old assemblies.
 			/// Note: This affects all mods as Harmony caches are global.
 			/// </summary>
@@ -608,6 +627,42 @@ namespace UnityModManagerNet
 					Debug.LogWarning($"[UMM] Failed to clear Harmony cache: {e.Message}");
 				}
 			}
-		}
+
+            private void ReloadType(Type type)
+            {
+                var t = Assembly.GetType(type.FullName);
+                if (t == null)
+                    return;
+                
+                var bindingFlags = BindingFlags.Static | 
+                    BindingFlags.Public | 
+                    BindingFlags.NonPublic;
+                
+                var fields = type.GetFields(bindingFlags)
+                    .Where(f => f.GetCustomAttributes(typeof(SaveOnReloadAttribute), true).Any());
+                
+                foreach (var field in fields)
+                {
+                    var f = t.GetField(field.Name);
+                    if (f == null) continue;
+                    
+                    //Logger?.Log($"Copying field '{field.DeclaringType.Name}.{field.Name}'");
+                    try
+                    {
+                        if (field.FieldType != f.FieldType)
+                        {
+                            if (field.FieldType.IsEnum && f.FieldType.IsEnum)
+                                f.SetValue(null, Convert.ToInt32(field.GetValue(null)));
+                        }
+                        else
+                            f.SetValue(null, field.GetValue(null));
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error(ex.ToString());
+                    }
+                }
+            }
+        }
 	}
 }
