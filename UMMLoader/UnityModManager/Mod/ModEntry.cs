@@ -152,10 +152,10 @@ namespace UnityModManagerNet
 
 					try
 					{
-						if (value == mActive)
+						if (value == mActive) //skip if state unchanged
 							return;
 
-						if (value && !Loaded)
+						if (value && !Loaded) //if being set to true and modd assembly not already loaded:
 						{
 							var stopwatch = Stopwatch.StartNew();
 							Load();
