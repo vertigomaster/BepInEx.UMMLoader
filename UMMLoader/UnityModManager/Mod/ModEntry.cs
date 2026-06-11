@@ -388,6 +388,7 @@ namespace UnityModManagerNet
                     }
 
                     Assembly = Assembly.LoadFile(assemblyCachePath);
+                    Logger.Log($"Loaded assembly {Assembly.FullName} for mod {Info.Id} from cache: {assemblyCachePath}");
                 }
             }
 

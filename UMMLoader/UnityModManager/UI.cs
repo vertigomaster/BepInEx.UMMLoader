@@ -535,6 +535,8 @@ namespace UnityModManagerNet
 					action = GUILayout.Toggle(action, "", colWidth[++col]);
 					if (action != mods[i].Enabled)
 					{
+                        Logger.Log($"UI Debug - Mod {mods[i].Info.Id} is being enabled: {action}");
+                        
 						mods[i].Enabled = action;
 						if (mods[i].Toggleable)
 							mods[i].Active = action;
