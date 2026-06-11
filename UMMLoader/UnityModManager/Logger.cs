@@ -8,8 +8,8 @@ namespace UnityModManagerNet
 	{
 		public static class Logger
 		{
-			private const string Prefix = "[Manager]";
-			private const string PrefixError = "[Manager] [Error]";
+			private const string Prefix = "[UMManager]";
+			private const string PrefixError = "[UMManager] [Error]";
 
 			internal static int historyCapacity = 200;
 			internal static List<string> history = new List<string>(historyCapacity * 2);
