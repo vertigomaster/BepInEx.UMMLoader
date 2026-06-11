@@ -310,7 +310,7 @@ namespace UnityModManagerNet
 						{
 							ErrorOnLoading = true;
                             string reason = !ranEntryMethod ? 
-                                "Entry method could not be run (didn't exist?)" :
+                                "Entry method could not be run (either errored out or didn't exist)" :
                                 "Entry method returned false";
 							Logger.Log($"Not loaded. Reason: {reason}");
 						}
