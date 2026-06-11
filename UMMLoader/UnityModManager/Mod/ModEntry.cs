@@ -15,9 +15,10 @@ namespace UnityModManagerNet
 	{
 		public partial class ModEntry
 		{
-			// private static readonly Regex RequirementPattern = new Regex(@"(.*)-(\d\.\d\.\d).*");
+            //the "Compiled" regex option isn't working on some Info.json files, unclear why. Removed the option for now.
+            //Hopefully this can be put back after other handling is added/investigated.
+			private static readonly Regex RequirementPattern = new Regex(@"(.*)-(\d\.\d\.\d).*");
 			// private static readonly Regex RequirementPattern = new Regex(@"(.*)-(\d\.\d\.\d).*", RegexOptions.Compiled);
-			private static readonly Regex RequirementPattern = null; //weird cctor error, testing.
 
 			/// <summary>
 			///     Required game version [0.15.0]
